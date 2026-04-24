@@ -1,0 +1,19 @@
+{
+  "name": "bv_indexer",
+  "version": "1.0.0",
+  "description": "세력 지갑 트래커 인덱서",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

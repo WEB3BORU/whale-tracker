@@ -1,0 +1,21 @@
+# 환경 변수 및 접속 정보
+.env
+.env.*
+.mcp.json
+
+# Claude 로컬 설정
+.claude/settings.local.json
+
+# Node.js
+node_modules/
+
+# 빌드 결과물
+dist/
+build/
+
+# 로그
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
