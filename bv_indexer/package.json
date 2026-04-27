@@ -12,8 +12,14 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@testcontainers/postgresql": "^11.14.0",
     "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0",
+    "testcontainers": "^11.14.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
   }
 }
