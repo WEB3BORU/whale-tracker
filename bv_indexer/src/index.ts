@@ -3,6 +3,7 @@ import pg from 'pg';
 import { type Address } from 'viem';
 import { PostgresWhaleWalletRepository } from './infrastructure/db/PostgresWhaleWalletRepository.js';
 import { PostgresExchangeAddressRepository } from './infrastructure/db/PostgresExchangeAddressRepository.js';
+import { PostgresTransferRepository } from './infrastructure/db/PostgresTransferRepository.js';
 import { DetectWhaleTransferUseCase } from './application/usecases/DetectWhaleTransferUseCase.js';
 import { TransferEventListener } from './infrastructure/alchemy/TransferEventListener.js';
 
@@ -24,8 +25,9 @@ const pool = new Pool({
 
 const whaleWalletRepo = new PostgresWhaleWalletRepository(pool);
 const exchangeAddressRepo = new PostgresExchangeAddressRepository(pool);
+const transferRepo = new PostgresTransferRepository(pool);
 const useCase = new DetectWhaleTransferUseCase(whaleWalletRepo, exchangeAddressRepo);
-const listener = new TransferEventListener(useCase);
+const listener = new TransferEventListener(useCase, transferRepo);
 
 const tokenAddress = requireEnv('TOKEN_ADDRESS') as Address;
 listener.start(tokenAddress);

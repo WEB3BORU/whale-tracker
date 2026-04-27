@@ -221,6 +221,112 @@ class FakeWhaleWalletRepository implements WhaleWalletRepository {
 
 ---
 
+## 구현 진행 상황
+
+### 완료된 작업 (PR merge 기준)
+
+| PR | 브랜치 | 내용 |
+|----|--------|------|
+| #1 | feature/init-structure | 프로젝트 초기 설정 (디렉토리 구조, tsconfig, vitest) |
+| #2 | feature/domain-entities | Entities 레이어 — WhaleWallet, Transfer 도메인 객체 + 단위 테스트 |
+| #3 | feature/use-cases | Use Cases 레이어 — DetectWhaleTransferUseCase + 단위 테스트 |
+| #4 | feature/db-schema | DB 스키마 — whale_wallets, exchange_addresses, transfers, sync_state |
+| #5 | feature/interface-adapters | Interface Adapters — PostgreSQL Repository 구현체 + 통합 테스트 |
+| #6 | feature/frameworks-drivers | Frameworks & Drivers — Viem 클라이언트, TransferEventListener, index.ts 진입점 |
+
+### 현재 구현된 파일 구조
+
+```
+bv_indexer/
+├── scripts/
+│   ├── seed-exchanges.ts                             ← 거래소 주소 DB 등록 (npm run seed:exchanges)
+│   └── seed-whales.ts                               ← Moralis API로 상위 홀더 조회 후 등록 (npm run seed:whales)
+└── src/
+    ├── index.ts                                      ← 진입점 (레이어 조립 + 인덱서 시작)
+    ├── application/
+    │   └── usecases/
+    │       └── DetectWhaleTransferUseCase.ts         ← 감지 로직 (isWhale, isAlert, toType 반환)
+    ├── domain/
+    │   ├── entities/
+    │   │   ├── WhaleWallet.ts                        ← 세력 지갑 도메인 객체
+    │   │   └── Transfer.ts                           ← ERC-20 전송 이벤트 도메인 객체
+    │   └── repositories/
+    │       ├── IWhaleWalletRepository.ts
+    │       ├── IExchangeAddressRepository.ts
+    │       └── ITransferRepository.ts                ← save / sumToExchange / sumToExchangeSince / findRecentAlerts
+    ├── infrastructure/
+    │   ├── alchemy/
+    │   │   ├── viemClient.ts                         ← Alchemy HTTP/WebSocket 클라이언트
+    │   │   └── TransferEventListener.ts              ← 이벤트 수신 → 감지 → DB 저장 → 알림 출력
+    │   └── db/
+    │       ├── schema.sql
+    │       ├── PostgresWhaleWalletRepository.ts
+    │       ├── PostgresExchangeAddressRepository.ts
+    │       └── PostgresTransferRepository.ts         ← UPSERT + 누적량 조회 구현체
+    └── tests/
+        ├── unit/
+        │   ├── WhaleWallet.test.ts
+        │   ├── Transfer.test.ts
+        │   └── DetectWhaleTransferUseCase.test.ts    ← isWhale 포함 3케이스
+        └── integration/
+            ├── PostgresWhaleWalletRepository.test.ts
+            ├── PostgresExchangeAddressRepository.test.ts
+            └── PostgresTransferRepository.test.ts    ← save/UPSERT/sumToExchange/findRecentAlerts 9케이스
+```
+
+### 다음 작업 (미완료)
+
+1. **알림 기능**
+   - 텔레그램 또는 디스코드 봇 연동
+   - 감지 시 콘솔 출력 → 실제 메시지 전송으로 전환
+
+2. **Historical Sync (선택)**
+   - 인덱서 시작 시 마지막 처리 블록부터 현재까지 과거 이벤트 일괄 수집
+   - `sync_state` 테이블 활용
+
+3. **Reorg 처리 (선택)**
+   - `parentHash` 검증 → 고아 블록 `is_orphan = TRUE` 처리
+
+### 로컬 환경 실행 방법
+
+**사전 조건**: WSL2(Ubuntu 24.04), Node.js v20+, Docker Engine 설치 필요
+
+```bash
+# Docker 데몬 시작
+sudo service docker start
+
+# PostgreSQL 컨테이너 실행
+docker compose up -d
+
+# 스키마 적용
+docker exec -i whale_tracker_db psql -U whale_user -d whale_tracker < bv_indexer/src/infrastructure/db/schema.sql
+
+# 패키지 설치
+cd bv_indexer && npm install
+
+# 테스트 실행
+npm test
+
+# 인덱서 실행
+npm start
+```
+
+### .env 설정 (bv_indexer/.env)
+
+```
+ALCHEMY_API_KEY=발급받은_키
+TOKEN_ADDRESS=0x17205fab260a7a6383a81452cE6315A39370Db97
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=whale_tracker
+DB_USER=whale_user
+DB_PASSWORD=whale_pass
+```
+
+> RAVE 토큰 컨트랙트: `0x17205fab260a7a6383a81452cE6315A39370Db97` (Ethereum Mainnet)
+
+---
+
 ## 참고 — 주요 이더리움 개념 요약
 
 > 모르는 용어가 나오면 언제든 물어보면 된다. 진행하면서 하나씩 직접 다뤄본다.

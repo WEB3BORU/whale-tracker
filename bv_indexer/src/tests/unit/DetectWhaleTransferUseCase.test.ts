@@ -65,11 +65,12 @@ describe('DetectWhaleTransferUseCase', () => {
     const result = await useCase.execute(transfer);
 
     // then
+    expect(result.isWhale).toBe(true);
     expect(result.isAlert).toBe(true);
     expect(result.toType).toBe('exchange');
   });
 
-  it('세력 지갑에서 일반 주소로 전송되면 알림 대상이 아니다', async () => {
+  it('세력 지갑에서 일반 주소로 전송되면 저장 대상이지만 알림 대상은 아니다', async () => {
     // given
     whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS));
     const transfer = Transfer.create({
@@ -87,11 +88,12 @@ describe('DetectWhaleTransferUseCase', () => {
     const result = await useCase.execute(transfer);
 
     // then
+    expect(result.isWhale).toBe(true);
     expect(result.isAlert).toBe(false);
     expect(result.toType).toBe('unknown');
   });
 
-  it('세력 지갑이 아닌 주소에서 전송되면 알림 대상이 아니다', async () => {
+  it('세력 지갑이 아닌 주소에서 전송되면 저장 대상이 아니다', async () => {
     // given
     exchangeAddressRepo.add(EXCHANGE_ADDRESS);
     const transfer = Transfer.create({
@@ -109,6 +111,7 @@ describe('DetectWhaleTransferUseCase', () => {
     const result = await useCase.execute(transfer);
 
     // then
+    expect(result.isWhale).toBe(false);
     expect(result.isAlert).toBe(false);
   });
 });
