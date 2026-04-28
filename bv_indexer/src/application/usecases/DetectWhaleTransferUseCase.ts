@@ -15,7 +15,7 @@ export class DetectWhaleTransferUseCase {
   ) {}
 
   async execute(transfer: Transfer): Promise<DetectionResult> {
-    const whaleWallet = await this.whaleWalletRepo.findByAddress(transfer.from);
+    const whaleWallet = await this.whaleWalletRepo.findByAddress(transfer.from, transfer.tokenAddress);
     if (!whaleWallet) {
       return { isWhale: false, isAlert: false, toType: 'unknown' };
     }

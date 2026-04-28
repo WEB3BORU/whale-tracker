@@ -5,9 +5,10 @@ import { WhaleWallet } from '../../domain/entities/WhaleWallet.js';
 import { IWhaleWalletRepository } from '../../domain/repositories/IWhaleWalletRepository.js';
 import { IExchangeAddressRepository } from '../../domain/repositories/IExchangeAddressRepository.js';
 
-const WHALE_ADDRESS = '0xAAAA000000000000000000000000000000000001';
+const TOKEN_ADDRESS    = '0x17205fab260a7a6383a81452cE6315A39370Db97';
+const WHALE_ADDRESS    = '0xAAAA000000000000000000000000000000000001';
 const EXCHANGE_ADDRESS = '0xBBBB000000000000000000000000000000000002';
-const NORMAL_ADDRESS = '0xCCCC000000000000000000000000000000000003';
+const NORMAL_ADDRESS   = '0xCCCC000000000000000000000000000000000003';
 
 const validTxHash = '0xabcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab';
 
@@ -18,8 +19,10 @@ class FakeWhaleWalletRepository implements IWhaleWalletRepository {
     this.wallets.push(wallet);
   }
 
-  async findByAddress(address: string): Promise<WhaleWallet | null> {
-    return this.wallets.find(w => w.address === address) ?? null;
+  async findByAddress(address: string, tokenAddress: string): Promise<WhaleWallet | null> {
+    return this.wallets.find(
+      w => w.address === address && w.tokenAddress === tokenAddress
+    ) ?? null;
   }
 }
 
@@ -48,15 +51,13 @@ describe('DetectWhaleTransferUseCase', () => {
 
   it('세력 지갑에서 거래소로 전송되면 알림 대상이다', async () => {
     // given
-    whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS));
+    whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS, TOKEN_ADDRESS));
     exchangeAddressRepo.add(EXCHANGE_ADDRESS);
     const transfer = Transfer.create({
-      txHash: validTxHash,
-      logIndex: 0,
-      from: WHALE_ADDRESS,
-      to: EXCHANGE_ADDRESS,
-      value: 1000000n,
-      blockNumber: 19000000n,
+      txHash: validTxHash, logIndex: 0,
+      tokenAddress: TOKEN_ADDRESS,
+      from: WHALE_ADDRESS, to: EXCHANGE_ADDRESS,
+      value: 1000000n, blockNumber: 19000000n,
       blockTimestamp: new Date('2024-01-01T00:00:00Z'),
       toType: 'unknown',
     });
@@ -72,14 +73,12 @@ describe('DetectWhaleTransferUseCase', () => {
 
   it('세력 지갑에서 일반 주소로 전송되면 저장 대상이지만 알림 대상은 아니다', async () => {
     // given
-    whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS));
+    whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS, TOKEN_ADDRESS));
     const transfer = Transfer.create({
-      txHash: validTxHash,
-      logIndex: 0,
-      from: WHALE_ADDRESS,
-      to: NORMAL_ADDRESS,
-      value: 1000000n,
-      blockNumber: 19000000n,
+      txHash: validTxHash, logIndex: 0,
+      tokenAddress: TOKEN_ADDRESS,
+      from: WHALE_ADDRESS, to: NORMAL_ADDRESS,
+      value: 1000000n, blockNumber: 19000000n,
       blockTimestamp: new Date('2024-01-01T00:00:00Z'),
       toType: 'unknown',
     });
@@ -97,12 +96,10 @@ describe('DetectWhaleTransferUseCase', () => {
     // given
     exchangeAddressRepo.add(EXCHANGE_ADDRESS);
     const transfer = Transfer.create({
-      txHash: validTxHash,
-      logIndex: 0,
-      from: NORMAL_ADDRESS,
-      to: EXCHANGE_ADDRESS,
-      value: 1000000n,
-      blockNumber: 19000000n,
+      txHash: validTxHash, logIndex: 0,
+      tokenAddress: TOKEN_ADDRESS,
+      from: NORMAL_ADDRESS, to: EXCHANGE_ADDRESS,
+      value: 1000000n, blockNumber: 19000000n,
       blockTimestamp: new Date('2024-01-01T00:00:00Z'),
       toType: 'unknown',
     });
@@ -113,5 +110,26 @@ describe('DetectWhaleTransferUseCase', () => {
     // then
     expect(result.isWhale).toBe(false);
     expect(result.isAlert).toBe(false);
+  });
+
+  it('같은 주소라도 다른 토큰으로 등록된 세력 지갑은 감지하지 않는다', async () => {
+    // given — WHALE_ADDRESS는 다른 토큰의 세력 지갑으로만 등록됨
+    const OTHER_TOKEN = '0xDDDD000000000000000000000000000000000004';
+    whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS, OTHER_TOKEN));
+    exchangeAddressRepo.add(EXCHANGE_ADDRESS);
+    const transfer = Transfer.create({
+      txHash: validTxHash, logIndex: 0,
+      tokenAddress: TOKEN_ADDRESS,
+      from: WHALE_ADDRESS, to: EXCHANGE_ADDRESS,
+      value: 1000000n, blockNumber: 19000000n,
+      blockTimestamp: new Date('2024-01-01T00:00:00Z'),
+      toType: 'unknown',
+    });
+
+    // when
+    const result = await useCase.execute(transfer);
+
+    // then
+    expect(result.isWhale).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { WhaleWallet } from '../entities/WhaleWallet.js';
 
 export interface IWhaleWalletRepository {
-  findByAddress(address: string): Promise<WhaleWallet | null>;
+  findByAddress(address: string, tokenAddress: string): Promise<WhaleWallet | null>;
 }

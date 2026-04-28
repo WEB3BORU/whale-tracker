@@ -3,6 +3,7 @@ export type ToType = 'exchange' | 'unknown';
 interface TransferProps {
   txHash: string;
   logIndex: number;
+  tokenAddress: string;
   from: string;
   to: string;
   value: bigint;
@@ -14,6 +15,7 @@ interface TransferProps {
 export class Transfer {
   readonly txHash: string;
   readonly logIndex: number;
+  readonly tokenAddress: string;
   readonly from: string;
   readonly to: string;
   readonly value: bigint;
@@ -24,6 +26,7 @@ export class Transfer {
   private constructor(props: TransferProps) {
     this.txHash = props.txHash;
     this.logIndex = props.logIndex;
+    this.tokenAddress = props.tokenAddress;
     this.from = props.from;
     this.to = props.to;
     this.value = props.value;

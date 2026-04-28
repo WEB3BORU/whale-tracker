@@ -8,7 +8,8 @@ import { Transfer } from '../../domain/entities/Transfer.js';
 
 const { Pool } = pg;
 
-const WHALE_ADDRESS  = '0xAAAA000000000000000000000000000000000001';
+const TOKEN_ADDRESS    = '0x17205fab260a7a6383a81452cE6315A39370Db97';
+const WHALE_ADDRESS    = '0xAAAA000000000000000000000000000000000001';
 const EXCHANGE_ADDRESS = '0xBBBB000000000000000000000000000000000002';
 const NORMAL_ADDRESS   = '0xCCCC000000000000000000000000000000000003';
 
@@ -19,6 +20,7 @@ function makeTxHash(suffix: string): string {
 function makeTransfer(overrides: Partial<{
   txHash: string;
   logIndex: number;
+  tokenAddress: string;
   from: string;
   to: string;
   value: bigint;
@@ -26,14 +28,15 @@ function makeTransfer(overrides: Partial<{
   toType: 'exchange' | 'unknown';
 }> = {}): Transfer {
   return Transfer.create({
-    txHash: makeTxHash('abc1'),
-    logIndex: 0,
-    from: WHALE_ADDRESS,
-    to: EXCHANGE_ADDRESS,
-    value: 1_000_000n,
-    blockNumber: 19_000_000n,
+    txHash:        makeTxHash('abc1'),
+    logIndex:      0,
+    tokenAddress:  TOKEN_ADDRESS,
+    from:          WHALE_ADDRESS,
+    to:            EXCHANGE_ADDRESS,
+    value:         1_000_000n,
+    blockNumber:   19_000_000n,
     blockTimestamp: new Date('2024-01-01T00:00:00Z'),
-    toType: 'exchange',
+    toType:        'exchange',
     ...overrides,
   });
 }
@@ -79,19 +82,18 @@ describe('PostgresTransferRepository', () => {
       const { rows } = await pool.query('SELECT * FROM transfers');
       expect(rows).toHaveLength(1);
       expect(rows[0].tx_hash.trim()).toBe(transfer.txHash);
+      expect(rows[0].token_address.trim()).toBe(TOKEN_ADDRESS);
       expect(rows[0].to_type).toBe('exchange');
     });
 
     it('같은 (txHash, logIndex)로 재저장하면 중복 없이 덮어쓴다 (UPSERT)', async () => {
-      // given — 처음 저장: toType = 'unknown'
-      const first = makeTransfer({ toType: 'unknown' });
-      await repository.save(first);
+      // given
+      await repository.save(makeTransfer({ toType: 'unknown' }));
 
-      // when — 같은 PK로 toType = 'exchange'로 재저장
-      const second = makeTransfer({ toType: 'exchange' });
-      await repository.save(second);
+      // when
+      await repository.save(makeTransfer({ toType: 'exchange' }));
 
-      // then — 행은 1개, 최신 값으로 갱신
+      // then
       const { rows } = await pool.query('SELECT * FROM transfers');
       expect(rows).toHaveLength(1);
       expect(rows[0].to_type).toBe('exchange');
@@ -107,7 +109,7 @@ describe('PostgresTransferRepository', () => {
       await repository.save(makeTransfer({ txHash: makeTxHash('a2'), value: 2_000_000n, toType: 'exchange' }));
 
       // when
-      const total = await repository.sumToExchange(WHALE_ADDRESS);
+      const total = await repository.sumToExchange(WHALE_ADDRESS, TOKEN_ADDRESS);
 
       // then
       expect(total).toBe(3_000_000n);
@@ -116,17 +118,30 @@ describe('PostgresTransferRepository', () => {
     it('거래소가 아닌 전송은 누적량에 포함하지 않는다', async () => {
       // given
       await repository.save(makeTransfer({ txHash: makeTxHash('b1'), value: 1_000_000n, toType: 'exchange' }));
-      await repository.save(makeTransfer({ txHash: makeTxHash('b2'), value: 500_000n,   to: NORMAL_ADDRESS, toType: 'unknown' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('b2'), value: 500_000n, to: NORMAL_ADDRESS, toType: 'unknown' }));
 
       // when
-      const total = await repository.sumToExchange(WHALE_ADDRESS);
+      const total = await repository.sumToExchange(WHALE_ADDRESS, TOKEN_ADDRESS);
+
+      // then
+      expect(total).toBe(1_000_000n);
+    });
+
+    it('다른 토큰의 전송은 누적량에 포함하지 않는다', async () => {
+      // given
+      const OTHER_TOKEN = '0xDDDD000000000000000000000000000000000004';
+      await repository.save(makeTransfer({ txHash: makeTxHash('c1'), value: 1_000_000n, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('c2'), value: 999_000n, tokenAddress: OTHER_TOKEN, toType: 'exchange' }));
+
+      // when
+      const total = await repository.sumToExchange(WHALE_ADDRESS, TOKEN_ADDRESS);
 
       // then
       expect(total).toBe(1_000_000n);
     });
 
     it('저장된 데이터가 없으면 0을 반환한다', async () => {
-      const total = await repository.sumToExchange(WHALE_ADDRESS);
+      const total = await repository.sumToExchange(WHALE_ADDRESS, TOKEN_ADDRESS);
       expect(total).toBe(0n);
     });
   });
@@ -140,13 +155,13 @@ describe('PostgresTransferRepository', () => {
       const today     = new Date('2024-01-02T00:00:00Z');
       const cutoff    = new Date('2024-01-02T00:00:00Z');
 
-      await repository.save(makeTransfer({ txHash: makeTxHash('c1'), value: 1_000_000n, blockTimestamp: yesterday, toType: 'exchange' }));
-      await repository.save(makeTransfer({ txHash: makeTxHash('c2'), value: 2_000_000n, blockTimestamp: today,     toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('d1'), value: 1_000_000n, blockTimestamp: yesterday, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('d2'), value: 2_000_000n, blockTimestamp: today,     toType: 'exchange' }));
 
       // when
-      const total = await repository.sumToExchangeSince(WHALE_ADDRESS, cutoff);
+      const total = await repository.sumToExchangeSince(WHALE_ADDRESS, TOKEN_ADDRESS, cutoff);
 
-      // then — today 전송만 포함
+      // then
       expect(total).toBe(2_000_000n);
     });
   });
@@ -159,11 +174,11 @@ describe('PostgresTransferRepository', () => {
       const t1 = new Date('2024-01-01T00:00:00Z');
       const t2 = new Date('2024-01-02T00:00:00Z');
 
-      await repository.save(makeTransfer({ txHash: makeTxHash('d1'), blockTimestamp: t1, toType: 'exchange' }));
-      await repository.save(makeTransfer({ txHash: makeTxHash('d2'), blockTimestamp: t2, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('e1'), blockTimestamp: t1, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('e2'), blockTimestamp: t2, toType: 'exchange' }));
 
       // when
-      const alerts = await repository.findRecentAlerts(10);
+      const alerts = await repository.findRecentAlerts(TOKEN_ADDRESS, 10);
 
       // then — 최신(t2)이 먼저
       expect(alerts).toHaveLength(2);
@@ -173,11 +188,11 @@ describe('PostgresTransferRepository', () => {
     it('limit 개수만큼만 반환한다', async () => {
       // given
       for (let i = 0; i < 5; i++) {
-        await repository.save(makeTransfer({ txHash: makeTxHash(`e${i}`), logIndex: i, toType: 'exchange' }));
+        await repository.save(makeTransfer({ txHash: makeTxHash(`f${i}`), logIndex: i, toType: 'exchange' }));
       }
 
       // when
-      const alerts = await repository.findRecentAlerts(3);
+      const alerts = await repository.findRecentAlerts(TOKEN_ADDRESS, 3);
 
       // then
       expect(alerts).toHaveLength(3);
@@ -185,15 +200,28 @@ describe('PostgresTransferRepository', () => {
 
     it('알림 대상이 아닌 전송은 포함하지 않는다', async () => {
       // given
-      await repository.save(makeTransfer({ txHash: makeTxHash('f1'), toType: 'exchange' }));
-      await repository.save(makeTransfer({ txHash: makeTxHash('f2'), to: NORMAL_ADDRESS, toType: 'unknown' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('aa1'), toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('aa2'), to: NORMAL_ADDRESS, toType: 'unknown' }));
 
       // when
-      const alerts = await repository.findRecentAlerts(10);
+      const alerts = await repository.findRecentAlerts(TOKEN_ADDRESS, 10);
 
       // then
       expect(alerts).toHaveLength(1);
       expect(alerts[0].toType).toBe('exchange');
+    });
+
+    it('다른 토큰의 알림은 포함하지 않는다', async () => {
+      // given
+      const OTHER_TOKEN = '0xDDDD000000000000000000000000000000000004';
+      await repository.save(makeTransfer({ txHash: makeTxHash('bb1'), toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('bb2'), tokenAddress: OTHER_TOKEN, toType: 'exchange' }));
+
+      // when
+      const alerts = await repository.findRecentAlerts(TOKEN_ADDRESS, 10);
+
+      // then
+      expect(alerts).toHaveLength(1);
     });
   });
 });

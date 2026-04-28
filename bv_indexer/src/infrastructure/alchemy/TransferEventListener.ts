@@ -3,6 +3,7 @@ import { wsClient } from './viemClient.js';
 import { DetectWhaleTransferUseCase } from '../../application/usecases/DetectWhaleTransferUseCase.js';
 import { ITransferRepository } from '../../domain/repositories/ITransferRepository.js';
 import { Transfer } from '../../domain/entities/Transfer.js';
+import { TelegramNotifier } from '../telegram/TelegramNotifier.js';
 
 const TRANSFER_EVENT = parseAbiItem(
   'event Transfer(address indexed from, address indexed to, uint256 value)'
@@ -12,13 +13,15 @@ export class TransferEventListener {
   constructor(
     private readonly useCase: DetectWhaleTransferUseCase,
     private readonly transferRepo: ITransferRepository,
+    private readonly notifier: TelegramNotifier,
+    private readonly tokenAddress: string,
   ) {}
 
-  start(tokenAddress: Address): void {
-    console.log(`[리스너 시작] 토큰: ${tokenAddress}`);
+  start(): void {
+    console.log(`[리스너 시작] 토큰: ${this.tokenAddress}`);
 
     wsClient.watchEvent({
-      address: tokenAddress,
+      address: this.tokenAddress as Address,
       event: TRANSFER_EVENT,
       onLogs: async (logs: any[]) => {
         for (const log of logs) {
@@ -37,6 +40,7 @@ export class TransferEventListener {
     const transfer = Transfer.create({
       txHash:         log.transactionHash,
       logIndex:       log.logIndex,
+      tokenAddress:   this.tokenAddress,
       from:           log.args.from,
       to:             log.args.to,
       value:          log.args.value,
@@ -49,26 +53,24 @@ export class TransferEventListener {
 
     if (!result.isWhale) return;
 
-    // 세력 지갑 전송이면 toType 반영해서 저장
     const transferToSave = Transfer.create({ ...transfer, toType: result.toType });
     await this.transferRepo.save(transferToSave);
 
     if (result.isAlert) {
       const [totalEver, totalToday] = await Promise.all([
-        this.transferRepo.sumToExchange(transfer.from),
-        this.transferRepo.sumToExchangeSince(transfer.from, this.startOfToday()),
+        this.transferRepo.sumToExchange(transfer.from, this.tokenAddress),
+        this.transferRepo.sumToExchangeSince(transfer.from, this.tokenAddress, this.startOfToday()),
       ]);
 
-      console.log('==========================');
-      console.log('[경고] 세력 지갑 → 거래소 전송 감지');
-      console.log(`  from       : ${transfer.from}`);
-      console.log(`  to         : ${transfer.to}`);
-      console.log(`  value      : ${transfer.value}`);
-      console.log(`  오늘 누적   : ${totalToday}`);
-      console.log(`  전체 누적   : ${totalEver}`);
-      console.log(`  block      : ${transfer.blockNumber}`);
-      console.log(`  tx         : ${transfer.txHash}`);
-      console.log('==========================');
+      await this.notifier.sendWhaleAlert({
+        from: transfer.from,
+        to: transfer.to,
+        value: transfer.value,
+        totalToday,
+        totalEver,
+        blockNumber: transfer.blockNumber,
+        txHash: transfer.txHash,
+      });
     }
   }
 

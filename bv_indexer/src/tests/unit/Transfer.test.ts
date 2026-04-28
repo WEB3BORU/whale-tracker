@@ -2,14 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { Transfer, ToType } from '../../domain/entities/Transfer.js';
 
 const validProps = {
-  txHash: '0xabcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
-  logIndex: 0,
-  from: '0xAbCd1234567890abcdef1234567890ABCDEF1234',
-  to: '0x1234567890abcdef1234567890ABCDEF12345678',
-  value: 1000000n,
-  blockNumber: 19000000n,
+  txHash:       '0xabcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
+  logIndex:     0,
+  tokenAddress: '0x17205fab260a7a6383a81452cE6315A39370Db97',
+  from:         '0xAbCd1234567890abcdef1234567890ABCDEF1234',
+  to:           '0x1234567890abcdef1234567890ABCDEF12345678',
+  value:        1000000n,
+  blockNumber:  19000000n,
   blockTimestamp: new Date('2024-01-01T00:00:00Z'),
-  toType: 'unknown' as ToType,
+  toType:       'unknown' as ToType,
 };
 
 describe('Transfer Entity', () => {
@@ -20,6 +21,7 @@ describe('Transfer Entity', () => {
 
       // then
       expect(transfer.txHash).toBe(validProps.txHash);
+      expect(transfer.tokenAddress).toBe(validProps.tokenAddress);
       expect(transfer.from).toBe(validProps.from);
       expect(transfer.value).toBe(1000000n);
     });
@@ -43,28 +45,28 @@ describe('Transfer Entity', () => {
 
   describe('isAlertTarget', () => {
     it('toType이 exchange면 알림 대상이다', () => {
-      // given
+      // given / when
       const transfer = Transfer.create({ ...validProps, toType: 'exchange' });
 
-      // when / then
+      // then
       expect(transfer.isAlertTarget).toBe(true);
     });
 
     it('toType이 unknown이면 알림 대상이 아니다', () => {
-      // given
+      // given / when
       const transfer = Transfer.create({ ...validProps, toType: 'unknown' });
 
-      // when / then
+      // then
       expect(transfer.isAlertTarget).toBe(false);
     });
   });
 
   describe('uniqueId', () => {
     it('uniqueId는 txHash-logIndex 형태다', () => {
-      // given
+      // given / when
       const transfer = Transfer.create({ ...validProps, logIndex: 3 });
 
-      // when / then
+      // then
       expect(transfer.uniqueId).toBe(`${validProps.txHash}-3`);
     });
   });

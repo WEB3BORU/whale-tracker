@@ -8,14 +8,15 @@ export class PostgresTransferRepository implements ITransferRepository {
   async save(transfer: Transfer): Promise<void> {
     await this.pool.query(
       `INSERT INTO transfers
-         (tx_hash, log_index, from_address, to_address, value, block_number, block_timestamp, to_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (tx_hash, log_index, token_address, from_address, to_address, value, block_number, block_timestamp, to_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (tx_hash, log_index) DO UPDATE
          SET to_type   = EXCLUDED.to_type,
              is_orphan = EXCLUDED.is_orphan`,
       [
         transfer.txHash,
         transfer.logIndex,
+        transfer.tokenAddress,
         transfer.from,
         transfer.to,
         transfer.value.toString(),
@@ -26,46 +27,50 @@ export class PostgresTransferRepository implements ITransferRepository {
     );
   }
 
-  async sumToExchange(whaleAddress: string): Promise<bigint> {
+  async sumToExchange(whaleAddress: string, tokenAddress: string): Promise<bigint> {
     const { rows } = await this.pool.query(
       `SELECT COALESCE(SUM(value), 0) AS total
        FROM transfers
        WHERE from_address = $1
+         AND token_address = $2
          AND to_type = 'exchange'
          AND is_orphan = FALSE`,
-      [whaleAddress]
+      [whaleAddress, tokenAddress]
     );
     return BigInt(rows[0].total);
   }
 
-  async sumToExchangeSince(whaleAddress: string, since: Date): Promise<bigint> {
+  async sumToExchangeSince(whaleAddress: string, tokenAddress: string, since: Date): Promise<bigint> {
     const { rows } = await this.pool.query(
       `SELECT COALESCE(SUM(value), 0) AS total
        FROM transfers
        WHERE from_address = $1
+         AND token_address = $2
          AND to_type = 'exchange'
-         AND block_timestamp >= $2
+         AND block_timestamp >= $3
          AND is_orphan = FALSE`,
-      [whaleAddress, since]
+      [whaleAddress, tokenAddress, since]
     );
     return BigInt(rows[0].total);
   }
 
-  async findRecentAlerts(limit: number): Promise<Transfer[]> {
+  async findRecentAlerts(tokenAddress: string, limit: number): Promise<Transfer[]> {
     const { rows } = await this.pool.query(
-      `SELECT tx_hash, log_index, from_address, to_address, value,
+      `SELECT tx_hash, log_index, token_address, from_address, to_address, value,
               block_number, block_timestamp, to_type
        FROM transfers
-       WHERE to_type = 'exchange'
+       WHERE token_address = $1
+         AND to_type = 'exchange'
          AND is_orphan = FALSE
        ORDER BY block_timestamp DESC
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [tokenAddress, limit]
     );
     return rows.map((row) =>
       Transfer.create({
         txHash:         row.tx_hash.trim(),
         logIndex:       row.log_index,
+        tokenAddress:   row.token_address.trim(),
         from:           row.from_address.trim(),
         to:             row.to_address.trim(),
         value:          BigInt(row.value),
