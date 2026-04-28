@@ -26,4 +26,22 @@ export class PostgresWhaleWalletRepository implements IWhaleWalletRepository {
 
     return wallet;
   }
+
+  async findAllByToken(tokenAddress: string): Promise<WhaleWallet[]> {
+    const result = await this.pool.query(
+      `SELECT address, token_address, label, is_active
+       FROM whale_wallets
+       WHERE token_address = $1 AND is_active = TRUE`,
+      [tokenAddress]
+    );
+
+    return result.rows.map((row) => {
+      const wallet = WhaleWallet.create(
+        row.address.trim(),
+        row.token_address.trim(),
+        row.label ?? undefined,
+      );
+      return wallet;
+    });
+  }
 }

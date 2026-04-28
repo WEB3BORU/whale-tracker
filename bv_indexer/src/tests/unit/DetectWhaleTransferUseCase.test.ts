@@ -24,6 +24,10 @@ class FakeWhaleWalletRepository implements IWhaleWalletRepository {
       w => w.address === address && w.tokenAddress === tokenAddress
     ) ?? null;
   }
+
+  async findAllByToken(tokenAddress: string): Promise<WhaleWallet[]> {
+    return this.wallets.filter(w => w.tokenAddress === tokenAddress);
+  }
 }
 
 class FakeExchangeAddressRepository implements IExchangeAddressRepository {
