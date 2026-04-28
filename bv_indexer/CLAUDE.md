@@ -223,7 +223,7 @@ class FakeWhaleWalletRepository implements WhaleWalletRepository {
 
 ## 구현 진행 상황
 
-### 완료된 작업 (PR merge 기준)
+### PR 머지 이력
 
 | PR | 브랜치 | 내용 |
 |----|--------|------|
@@ -233,59 +233,224 @@ class FakeWhaleWalletRepository implements WhaleWalletRepository {
 | #4 | feature/db-schema | DB 스키마 — whale_wallets, exchange_addresses, transfers, sync_state |
 | #5 | feature/interface-adapters | Interface Adapters — PostgreSQL Repository 구현체 + 통합 테스트 |
 | #6 | feature/frameworks-drivers | Frameworks & Drivers — Viem 클라이언트, TransferEventListener, index.ts 진입점 |
+| #7 | feature/multi-token-schema | Telegram 알림 (TelegramNotifier), 멀티 토큰 스키마 개선 |
+| #8 | feature/moralis-batch-sync | Moralis HTTP API로 과거 이력 배치 수집 (HistoricalBatchSync 초기 버전) |
+
+> **현재 브랜치**: `develop` — #8 이후 설계 개선 작업 중 (아직 PR 없음)
+
+---
+
+### develop 브랜치 작업 내역 (미머지, 2026-04-28 기준)
+
+#8 머지 이후 실제 실행 중 발견한 문제들을 수정하고, 설계를 전면 개선했다.
+
+#### 1. Moralis API 버그 수정
+
+**문제 1 — 잘못된 엔드포인트**: 최초 구현에서 `/erc20/{walletAddr}/transfers`를 사용했는데, 이것은 토큰 컨트랙트 기준 엔드포인트다. 지갑 기준으로 조회하려면 `/{walletAddr}/erc20/transfers`를 사용해야 한다.
+
+**문제 2 — 파라미터 이름**: `token_addresses[0]`이 아니라 `contract_addresses[0]`이 올바른 파라미터명이다.
+
+**문제 3 — URL 인코딩**: `URLSearchParams`를 쓰면 `[]`가 `%5B%5D`로 인코딩되어 Moralis가 파라미터를 인식 못한다. 템플릿 리터럴로 URL을 직접 조합해야 한다.
+
+```typescript
+// 잘못된 방법 (기존)
+`/erc20/${address}/transfers?token_addresses[0]=...`
+
+// 올바른 방법 (수정 후)
+`/${address}/erc20/transfers?chain=eth&contract_addresses[0]=${tokenAddress}&from_date=...`
+```
+
+**문제 4 — value=0 충돌**: Moralis는 value가 0인 Transfer 이벤트도 반환한다. `Transfer.create()`는 value > 0을 강제하므로 저장 전에 `if (BigInt(item.value) === 0n) continue;`로 스킵한다.
+
+#### 2. 시작 흐름 재설계 (seed-whales.ts 제거)
+
+기존에는 `npm run seed:whales` 스크립트로 지갑 목록을 수동 등록했다. 이를 `npm start` 시 자동으로 처리하도록 `HistoricalBatchSync.run()` 안에 통합했다.
+
+**새 시작 흐름 (npm start 실행 시)**:
+
+```
+① Moralis /erc20/{tokenAddress}/owners?limit=20 호출
+   → 상위 홀더 최대 20개 조회 (거래소 필터링 여유분)
+② 거래소 주소 필터 적용 → 비거래소 상위 10개(TOP_WHALE_LIMIT)만 확정
+③ DB 지갑 목록 갱신
+   - 이번 TOP10에 없는 기존 지갑 → is_active = FALSE
+   - 이번 TOP10 지갑 → UPSERT (label = "Top N Holder (X.XX%)", is_active = TRUE)
+④ 각 지갑별로 getLastTransferTimestamp() 조회
+   - 기록 있음 → 마지막 저장 timestamp부터 Moralis 조회
+   - 기록 없음 → fallbackFromDate(= 오늘 - lookbackDays)부터 조회
+   - 중복 없음: UPSERT (tx_hash, log_index) PK
+⑤ 배치 완료 → TelegramCommandHandler 폴링 시작 (별도 루프)
+⑥ TransferEventListener 실시간 감시 시작 (Alchemy WebSocket)
+```
+
+**핵심 설계 결정**:
+- `batch_synced_block` 개념 완전 제거. 블록 번호 기반이 아닌 **per-wallet timestamp 기반** 갭 채우기.
+- `TOP_WHALE_LIMIT = 10` 하드코딩. 사용자가 변경하는 값이 아님.
+- `is_active = FALSE` 소프트 삭제. 지갑이 TOP10에서 빠지면 DELETE하지 않고 비활성 처리.
+- `BATCH_LOOKBACK_DAYS` 환경변수로 fallback 기간 조정 가능 (기본값 90일).
+
+#### 3. 인터페이스 변경 내역
+
+**`ISyncStateRepository`** — `batchSyncedBlock`, `updateBatchSyncedBlock` 제거:
+```typescript
+export interface SyncState {
+  tokenAddress: string;
+  lastProcessedBlock: bigint;
+  isSyncing: boolean;          // batch_synced_block 필드 삭제됨
+}
+export interface ISyncStateRepository {
+  getOrCreate(tokenAddress: string): Promise<SyncState>;
+  setSyncing(tokenAddress: string, isSyncing: boolean): Promise<void>;
+  updateLastProcessedBlock(tokenAddress: string, blockNumber: bigint): Promise<void>;
+  // updateBatchSyncedBlock 삭제됨
+}
+```
+
+**`IWhaleWalletRepository`** — `upsert`, `deactivateExcept` 추가:
+```typescript
+export interface IWhaleWalletRepository {
+  findByAddress(address: string, tokenAddress: string): Promise<WhaleWallet | null>;
+  findAllByToken(tokenAddress: string): Promise<WhaleWallet[]>;
+  upsert(address: string, tokenAddress: string, label: string): Promise<void>;
+  deactivateExcept(tokenAddress: string, activeAddresses: string[]): Promise<void>;
+}
+```
+
+**`ITransferRepository`** — Telegram 조회용 메서드 추가:
+```typescript
+export interface ITransferRepository {
+  save(transfer: Transfer): Promise<void>;
+  sumToExchange(whaleAddress: string, tokenAddress: string): Promise<bigint>;
+  sumToExchangeSince(whaleAddress: string, tokenAddress: string, since: Date): Promise<bigint>;
+  findRecentAlerts(tokenAddress: string, limit: number): Promise<Transfer[]>;
+  // 아래는 신규 추가
+  getDailyExchangeVolume(tokenAddress: string, days: number): Promise<DailyVolume[]>;
+  getTopSenders(tokenAddress: string, since: Date, limit: number): Promise<TopSender[]>;
+  sumAllToExchangeSince(tokenAddress: string, since: Date): Promise<bigint>;
+  findRecentByAddress(address: string, tokenAddress: string, limit: number): Promise<Transfer[]>;
+  getLastTransferTimestamp(address: string, tokenAddress: string): Promise<Date | null>;
+}
+```
+
+#### 4. Telegram 조회 명령어 구현
+
+`TelegramCommandHandler` (long-polling 방식): `getUpdates?offset=N&timeout=30` 무한 루프.
+
+| 명령어 | 설명 | 내부 호출 |
+|--------|------|-----------|
+| `/list` | 최근 7일 일별 거래소 전송량 | `getDailyExchangeVolume(7)` |
+| `/top [N]` | 최근 N일(기본 30) 상위 5 매도자 | `getTopSenders(since, 5)` |
+| `/whale 0x주소` | 특정 지갑 누적량 + 최근 5건 | `sumToExchange` + `findRecentByAddress(5)` |
+| `/today` | 오늘(UTC 0시 기준) 전체 전송량 | `sumAllToExchangeSince(startOfUTCDay)` |
+| `/recent` | 최근 감지 10건 목록 | `findRecentAlerts(10)` |
+
+#### 5. DB 스키마 변경
+
+`sync_state` 테이블에서 `batch_synced_block BIGINT` 컬럼 제거:
+
+```sql
+CREATE TABLE IF NOT EXISTS sync_state (
+  token_address         CHAR(42)    PRIMARY KEY,
+  last_processed_block  BIGINT      NOT NULL DEFAULT 0,
+  is_syncing            BOOLEAN     NOT NULL DEFAULT FALSE,
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- batch_synced_block 컬럼 없음
+```
+
+> **주의**: DB를 재생성해야 한다. 기존 `sync_state` 테이블이 있으면 `DROP TABLE sync_state;` 후 `schema.sql` 재적용.
+
+#### 6. 테스트 현황
+
+| 파일 | 종류 | 테스트 수 |
+|------|------|-----------|
+| WhaleWallet.test.ts | unit | 7 |
+| Transfer.test.ts | unit | 6 |
+| DetectWhaleTransferUseCase.test.ts | unit | 3 |
+| TelegramNotifier.test.ts | unit | 7 |
+| TelegramCommandHandler.test.ts | unit | 11 |
+| HistoricalBatchSync.test.ts | unit | 10 |
+| PostgresExchangeAddressRepository.test.ts | integration | 4 |
+| PostgresWhaleWalletRepository.test.ts | integration | 12 |
+| PostgresTransferRepository.test.ts | integration | 29 |
+| PostgresSyncStateRepository.test.ts | integration | 4 |
+| **합계** | | **88 / 88 통과** |
+
+---
 
 ### 현재 구현된 파일 구조
 
 ```
 bv_indexer/
 ├── scripts/
-│   ├── seed-exchanges.ts                             ← 거래소 주소 DB 등록 (npm run seed:exchanges)
-│   └── seed-whales.ts                               ← Moralis API로 상위 홀더 조회 후 등록 (npm run seed:whales)
+│   └── seed-exchanges.ts            ← 거래소 주소 DB 등록 (npm run seed:exchanges)
+│                                      seed-whales.ts는 삭제됨 (HistoricalBatchSync로 통합)
 └── src/
-    ├── index.ts                                      ← 진입점 (레이어 조립 + 인덱서 시작)
+    ├── index.ts                     ← 진입점: 레이어 조립 → batchSync.run() → TG 폴링 → WS 리스너
     ├── application/
     │   └── usecases/
-    │       └── DetectWhaleTransferUseCase.ts         ← 감지 로직 (isWhale, isAlert, toType 반환)
+    │       └── DetectWhaleTransferUseCase.ts      ← 감지 로직 (isWhale, isAlert, toType)
     ├── domain/
     │   ├── entities/
-    │   │   ├── WhaleWallet.ts                        ← 세력 지갑 도메인 객체
-    │   │   └── Transfer.ts                           ← ERC-20 전송 이벤트 도메인 객체
+    │   │   ├── WhaleWallet.ts                     ← 세력 지갑 도메인 객체 (isActive, deactivate())
+    │   │   └── Transfer.ts                        ← ERC-20 전송 이벤트 도메인 객체
     │   └── repositories/
-    │       ├── IWhaleWalletRepository.ts
-    │       ├── IExchangeAddressRepository.ts
-    │       └── ITransferRepository.ts                ← save / sumToExchange / sumToExchangeSince / findRecentAlerts
+    │       ├── IWhaleWalletRepository.ts          ← findByAddress / findAllByToken / upsert / deactivateExcept
+    │       ├── IExchangeAddressRepository.ts      ← isExchange(address)
+    │       ├── ITransferRepository.ts             ← save / sumTo* / find* / getLastTransferTimestamp
+    │       └── ISyncStateRepository.ts            ← getOrCreate / setSyncing / updateLastProcessedBlock
     ├── infrastructure/
     │   ├── alchemy/
-    │   │   ├── viemClient.ts                         ← Alchemy HTTP/WebSocket 클라이언트
-    │   │   └── TransferEventListener.ts              ← 이벤트 수신 → 감지 → DB 저장 → 알림 출력
-    │   └── db/
-    │       ├── schema.sql
-    │       ├── PostgresWhaleWalletRepository.ts
-    │       ├── PostgresExchangeAddressRepository.ts
-    │       └── PostgresTransferRepository.ts         ← UPSERT + 누적량 조회 구현체
+    │   │   ├── viemClient.ts                      ← Alchemy HTTP/WebSocket 클라이언트 (viem)
+    │   │   ├── TransferEventListener.ts           ← WS 이벤트 수신 → 감지 → DB 저장 → TG 알림
+    │   │   └── HistoricalBatchSync.ts             ← Moralis API로 과거 이력 배치 수집
+    │   ├── db/
+    │   │   ├── schema.sql
+    │   │   ├── PostgresWhaleWalletRepository.ts   ← upsert / deactivateExcept 포함
+    │   │   ├── PostgresExchangeAddressRepository.ts
+    │   │   ├── PostgresTransferRepository.ts      ← getLastTransferTimestamp / getDailyExchangeVolume 등
+    │   │   └── PostgresSyncStateRepository.ts
+    │   └── telegram/
+    │       ├── TelegramNotifier.ts                ← 실시간 감지 알림 (sendWhaleAlert)
+    │       └── TelegramCommandHandler.ts          ← 조회 명령어 처리 (/list /top /whale /today /recent)
     └── tests/
         ├── unit/
         │   ├── WhaleWallet.test.ts
         │   ├── Transfer.test.ts
-        │   └── DetectWhaleTransferUseCase.test.ts    ← isWhale 포함 3케이스
+        │   ├── DetectWhaleTransferUseCase.test.ts
+        │   ├── TelegramNotifier.test.ts
+        │   ├── TelegramCommandHandler.test.ts
+        │   └── HistoricalBatchSync.test.ts
         └── integration/
-            ├── PostgresWhaleWalletRepository.test.ts
             ├── PostgresExchangeAddressRepository.test.ts
-            └── PostgresTransferRepository.test.ts    ← save/UPSERT/sumToExchange/findRecentAlerts 9케이스
+            ├── PostgresWhaleWalletRepository.test.ts
+            ├── PostgresTransferRepository.test.ts
+            └── PostgresSyncStateRepository.test.ts
 ```
+
+---
 
 ### 다음 작업 (미완료)
 
-1. **알림 기능**
-   - 텔레그램 또는 디스코드 봇 연동
-   - 감지 시 콘솔 출력 → 실제 메시지 전송으로 전환
+#### 즉시 필요한 것
 
-2. **Historical Sync (선택)**
-   - 인덱서 시작 시 마지막 처리 블록부터 현재까지 과거 이벤트 일괄 수집
-   - `sync_state` 테이블 활용
+1. **DB 재생성** — `sync_state` 테이블에서 `batch_synced_block` 컬럼이 제거됐다. 기존 컨테이너 DB를 쓰고 있다면:
+   ```bash
+   docker exec -i whale_tracker_db psql -U whale_user -d whale_tracker -c "DROP TABLE IF EXISTS sync_state;"
+   docker exec -i whale_tracker_db psql -U whale_user -d whale_tracker < bv_indexer/src/infrastructure/db/schema.sql
+   ```
 
-3. **Reorg 처리 (선택)**
-   - `parentHash` 검증 → 고아 블록 `is_orphan = TRUE` 처리
+2. **develop 브랜치 PR** — 현재 develop 브랜치의 변경사항을 PR로 올려 main에 머지.
+
+#### 기능적으로 남은 것
+
+3. **Reorg 처리** — `TransferEventListener`가 현재 `parentHash` 검증을 하지 않는다. 체인 재편성 시 `is_orphan = TRUE`로 처리하는 로직 필요. (선택적, 신뢰성 향상)
+
+4. **배포** — 로컬 WSL2에서만 실행 중. 무료 클라우드(Render, Fly.io 등)에 배포하면 24시간 모니터링 가능.
+
+5. **Telegram 봇 명령어 자동완성 등록** — BotFather에서 `/setcommands`로 명령어 목록을 등록하면 사용자가 `/`만 입력해도 자동완성됨.
+
+---
 
 ### 로컬 환경 실행 방법
 
@@ -298,32 +463,74 @@ sudo service docker start
 # PostgreSQL 컨테이너 실행
 docker compose up -d
 
-# 스키마 적용
+# 스키마 적용 (처음 또는 재생성 시)
 docker exec -i whale_tracker_db psql -U whale_user -d whale_tracker < bv_indexer/src/infrastructure/db/schema.sql
 
+# 거래소 주소 등록 (최초 1회)
+cd bv_indexer && npm run seed:exchanges
+
 # 패키지 설치
-cd bv_indexer && npm install
+npm install
 
 # 테스트 실행
 npm test
 
-# 인덱서 실행
+# 인덱서 실행 (배치 → TG 폴링 → WS 리스너 순으로 시작됨)
 npm start
 ```
 
 ### .env 설정 (bv_indexer/.env)
 
 ```
+# Alchemy (WebSocket 실시간 감시용)
 ALCHEMY_API_KEY=발급받은_키
+
+# Moralis (과거 이력 배치 수집용)
+MORALIS_API_KEY=발급받은_키
+
+# 추적할 토큰 컨트랙트 주소
 TOKEN_ADDRESS=0x17205fab260a7a6383a81452cE6315A39370Db97
+
+# 배치 조회 기간 (기본값 90일, 선택)
+BATCH_LOOKBACK_DAYS=90
+
+# PostgreSQL
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=whale_tracker
 DB_USER=whale_user
 DB_PASSWORD=whale_pass
+
+# Telegram 봇
+TG_BOT_KEY=봇토큰 (BotFather에서 발급)
+TG_CHAT_ID=채팅방ID (개인 또는 그룹)
 ```
 
 > RAVE 토큰 컨트랙트: `0x17205fab260a7a6383a81452cE6315A39370Db97` (Ethereum Mainnet)
+
+---
+
+### 주요 외부 API
+
+#### Moralis API v2.2
+
+- **상위 홀더 조회**: `GET https://deep-index.moralis.io/api/v2.2/erc20/{tokenAddress}/owners?chain=eth&limit=20&order=DESC`
+- **지갑별 전송 내역**: `GET https://deep-index.moralis.io/api/v2.2/{walletAddress}/erc20/transfers?chain=eth&contract_addresses[0]={tokenAddress}&from_date={ISO}&limit=100`
+- **인증**: 헤더 `X-API-Key: {MORALIS_API_KEY}`
+- **페이징**: 응답에 `cursor` 필드 있으면 다음 페이지 존재. `&cursor={cursor}` 파라미터로 다음 페이지 요청.
+- **주의**: URL에 `[]`를 포함한 파라미터는 반드시 템플릿 리터럴로 조합. `URLSearchParams` 사용 시 `%5B%5D`로 인코딩되어 파라미터 무시됨.
+
+#### Telegram Bot API
+
+- **메시지 수신 (폴링)**: `GET https://api.telegram.org/bot{token}/getUpdates?offset={N}&timeout=30`
+- **메시지 전송**: `POST https://api.telegram.org/bot{token}/sendMessage` (body: `{chat_id, text, parse_mode: "Markdown"}`)
+- **봇 토큰 발급**: BotFather (@BotFather) 에서 `/newbot`
+
+#### Alchemy
+
+- **WebSocket URL**: `wss://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}`
+- **HTTP URL**: `https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}`
+- viemClient.ts에서 `createPublicClient` (HTTP)와 `createPublicClient` (WebSocket) 두 클라이언트 생성.
 
 ---
 

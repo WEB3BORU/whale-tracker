@@ -48,7 +48,6 @@ CREATE INDEX IF NOT EXISTS idx_transfers_alert        ON transfers(token_address
 CREATE TABLE IF NOT EXISTS sync_state (
   token_address         CHAR(42)    PRIMARY KEY,
   last_processed_block  BIGINT      NOT NULL DEFAULT 0,
-  batch_synced_block    BIGINT,
   is_syncing            BOOLEAN     NOT NULL DEFAULT FALSE,
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
