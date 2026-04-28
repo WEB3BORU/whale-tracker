@@ -1,3 +1,5 @@
+import { ToType } from '../../domain/entities/Transfer.js';
+
 const DECIMALS = 18n;
 const DECIMAL_DIVISOR = 10n ** DECIMALS;
 
@@ -14,6 +16,7 @@ export class TelegramNotifier {
   constructor(
     private readonly botToken: string,
     private readonly chatId: string,
+    private readonly tokenSymbol: string,
   ) {
     this.apiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
   }
@@ -26,15 +29,17 @@ export class TelegramNotifier {
     totalEver: bigint;
     blockNumber: bigint;
     txHash: string;
+    toType: ToType;
   }): Promise<void> {
+    const destLabel = params.toType === 'exchange' ? '🏦 거래소' : '❓ 미확인';
     const text = [
-      '🚨 *세력 지갑 → 거래소 전송 감지*',
+      '🚨 *세력 지갑 출금 감지*',
       '',
       `*From:* \`${params.from}\``,
-      `*To:* \`${params.to}\``,
-      `*전송량:* ${formatTokenAmount(params.value)} RAVE`,
-      `*오늘 누적:* ${formatTokenAmount(params.totalToday)} RAVE`,
-      `*전체 누적:* ${formatTokenAmount(params.totalEver)} RAVE`,
+      `*To:* \`${params.to}\` (${destLabel})`,
+      `*전송량:* ${formatTokenAmount(params.value)} ${this.tokenSymbol}`,
+      `*오늘 누적:* ${formatTokenAmount(params.totalToday)} ${this.tokenSymbol}`,
+      `*전체 누적:* ${formatTokenAmount(params.totalEver)} ${this.tokenSymbol}`,
       `*Block:* ${params.blockNumber}`,
       `*Tx:* \`${params.txHash}\``,
     ].join('\n');

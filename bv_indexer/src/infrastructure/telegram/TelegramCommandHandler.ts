@@ -14,6 +14,7 @@ export class TelegramCommandHandler {
     private readonly botToken: string,
     private readonly transferRepo: ITransferRepository,
     private readonly tokenAddress: string,
+    private readonly tokenSymbol: string,
   ) {}
 
   // 무한 폴링 루프 — fire-and-forget으로 호출
@@ -61,11 +62,11 @@ export class TelegramCommandHandler {
     const data   = await this.transferRepo.getDailyExchangeVolume(this.tokenAddress, 7);
     const byDate = new Map(data.map(d => [d.date, d.total]));
 
-    const lines = ['📊 *최근 7일 거래소 전송량*', '────────────────────'];
+    const lines = ['📊 *최근 7일 세력 전송량*', '────────────────────'];
     for (let i = 0; i < 7; i++) {
       const d    = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
       const date = d.toISOString().slice(0, 10);
-      lines.push(`${date}  ${formatTokenAmount(byDate.get(date) ?? 0n)} RAVE`);
+      lines.push(`${date}  ${formatTokenAmount(byDate.get(date) ?? 0n)} ${this.tokenSymbol}`);
     }
 
     await this.send(chatId, lines.join('\n'));
@@ -77,12 +78,12 @@ export class TelegramCommandHandler {
     const since   = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const senders = await this.transferRepo.getTopSenders(this.tokenAddress, since, 5);
 
-    const lines = [`🏆 *최근 ${days}일 TOP ${senders.length} 매도자*`, '────────────────────'];
+    const lines = [`🏆 *최근 ${days}일 TOP ${senders.length} 세력 지갑*`, '────────────────────'];
     if (senders.length === 0) {
       lines.push('데이터 없음');
     } else {
       senders.forEach((s, i) =>
-        lines.push(`${i + 1}. \`${abbr(s.address)}\`  ${formatTokenAmount(s.total)} RAVE`)
+        lines.push(`${i + 1}. \`${abbr(s.address)}\`  ${formatTokenAmount(s.total)} ${this.tokenSymbol}`)
       );
     }
 
@@ -104,7 +105,7 @@ export class TelegramCommandHandler {
     const lines = [
       `🐋 *${abbr(address)}*`,
       '────────────────────',
-      `전체 누적: ${formatTokenAmount(total)} RAVE`,
+      `전체 누적: ${formatTokenAmount(total)} ${this.tokenSymbol}`,
       '',
     ];
 
@@ -112,7 +113,7 @@ export class TelegramCommandHandler {
       lines.push('최근 전송 (최대 5건):');
       recent.forEach(t => {
         const d = t.blockTimestamp.toISOString().slice(0, 10);
-        lines.push(`• ${d}  ${formatTokenAmount(t.value)} RAVE`);
+        lines.push(`• ${d}  ${formatTokenAmount(t.value)} ${this.tokenSymbol}`);
       });
     } else {
       lines.push('최근 거래소 전송 없음');
@@ -129,9 +130,9 @@ export class TelegramCommandHandler {
     const today = new Date().toISOString().slice(0, 10);
 
     await this.send(chatId, [
-      `📅 *오늘(${today}) 거래소 전송량*`,
+      `📅 *오늘(${today}) 세력 전송량*`,
       '────────────────────',
-      `총 ${formatTokenAmount(total)} RAVE`,
+      `총 ${formatTokenAmount(total)} ${this.tokenSymbol}`,
     ].join('\n'));
   }
 

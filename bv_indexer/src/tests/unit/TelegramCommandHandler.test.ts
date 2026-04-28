@@ -23,6 +23,8 @@ class FakeTransferRepository implements ITransferRepository {
   async sumAllToExchangeSince()      { return 0n; }
   async findRecentByAddress()        { return []; }
   async getLastTransferTimestamp()   { return null; }
+  async sumAllFrom()                 { return 0n; }
+  async sumAllFromSince()            { return 0n; }
 }
 
 // ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -46,7 +48,7 @@ describe('TelegramCommandHandler', () => {
 
   beforeEach(() => {
     repo    = new FakeTransferRepository();
-    handler = new TelegramCommandHandler(BOT_TOKEN, repo, TOKEN_ADDRESS);
+    handler = new TelegramCommandHandler(BOT_TOKEN, repo, TOKEN_ADDRESS, 'RAVE');
     fetchMock = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
     vi.stubGlobal('fetch', fetchMock);
   });

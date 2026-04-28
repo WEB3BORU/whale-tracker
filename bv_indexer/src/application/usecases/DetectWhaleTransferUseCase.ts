@@ -25,7 +25,7 @@ export class DetectWhaleTransferUseCase {
 
     return {
       isWhale: true,
-      isAlert: isExchange,
+      isAlert: true,
       toType,
     };
   }

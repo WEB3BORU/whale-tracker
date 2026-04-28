@@ -83,6 +83,8 @@ class FakeTransferRepository implements ITransferRepository {
   async getLastTransferTimestamp(address: string) {
     return this.lastTimestamps.get(address.toLowerCase()) ?? null;
   }
+  async sumAllFrom()      { return 0n; }
+  async sumAllFromSince() { return 0n; }
 }
 
 class FakeSyncStateRepository implements ISyncStateRepository {
