@@ -8,6 +8,7 @@ import { DetectWhaleTransferUseCase } from './application/usecases/DetectWhaleTr
 import { TransferEventListener } from './infrastructure/alchemy/TransferEventListener.js';
 import { HistoricalBatchSync } from './infrastructure/alchemy/HistoricalBatchSync.js';
 import { TelegramNotifier } from './infrastructure/telegram/TelegramNotifier.js';
+import { TelegramCommandHandler } from './infrastructure/telegram/TelegramCommandHandler.js';
 
 const { Pool } = pg;
 
@@ -39,6 +40,7 @@ const syncStateRepo      = new PostgresSyncStateRepository(pool);
 const notifier           = new TelegramNotifier(requireEnv('TG_BOT_KEY'), requireEnv('TG_CHAT_ID'));
 const useCase            = new DetectWhaleTransferUseCase(whaleWalletRepo, exchangeAddressRepo);
 const listener           = new TransferEventListener(useCase, transferRepo, notifier, tokenAddress);
+const commandHandler     = new TelegramCommandHandler(requireEnv('TG_BOT_KEY'), transferRepo, tokenAddress);
 
 const batchSync = new HistoricalBatchSync(
   requireEnv('MORALIS_API_KEY'),
@@ -52,6 +54,7 @@ const batchSync = new HistoricalBatchSync(
 
 async function main() {
   await batchSync.run();
+  commandHandler.start().catch(err => console.error('[TG 폴링 치명적 오류]', err));
   listener.start();
 }
 

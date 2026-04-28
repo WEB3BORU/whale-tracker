@@ -7,8 +7,7 @@
     "start": "tsx --env-file=.env src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:exchanges": "tsx --env-file=.env scripts/seed-exchanges.ts",
-    "seed:whales": "tsx --env-file=.env scripts/seed-whales.ts"
+    "seed:exchanges": "tsx --env-file=.env scripts/seed-exchanges.ts"
   },
   "keywords": [],
   "author": "",

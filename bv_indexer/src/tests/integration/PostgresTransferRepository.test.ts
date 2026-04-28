@@ -224,4 +224,220 @@ describe('PostgresTransferRepository', () => {
       expect(alerts).toHaveLength(1);
     });
   });
+
+  // ─── getDailyExchangeVolume() ──────────────────────────────
+
+  describe('getDailyExchangeVolume()', () => {
+    it('최근 N일 이내 exchange 전송량을 일별로 집계해 반환한다', async () => {
+      // given — 3일 전(window 내)과 10일 전(window 밖) 데이터
+      const within  = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const outside = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+
+      await repository.save(makeTransfer({ txHash: makeTxHash('ca1'), value: 1_000_000n, blockTimestamp: within,  toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('ca2'), value: 2_000_000n, blockTimestamp: within,  toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('ca3'), value: 9_000_000n, blockTimestamp: outside, toType: 'exchange' }));
+
+      // when
+      const result = await repository.getDailyExchangeVolume(TOKEN_ADDRESS, 7);
+
+      // then — within 날짜만 집계 (1건 날짜), 합산 3_000_000n
+      expect(result).toHaveLength(1);
+      expect(result[0].total).toBe(3_000_000n);
+    });
+
+    it('unknown 전송은 집계에 포함하지 않는다', async () => {
+      // given
+      const ts = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      await repository.save(makeTransfer({ txHash: makeTxHash('cb1'), value: 1_000_000n, blockTimestamp: ts, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('cb2'), value: 9_000_000n, to: NORMAL_ADDRESS, blockTimestamp: ts, toType: 'unknown' }));
+
+      // when
+      const result = await repository.getDailyExchangeVolume(TOKEN_ADDRESS, 7);
+
+      // then
+      expect(result[0].total).toBe(1_000_000n);
+    });
+
+    it('데이터가 없으면 빈 배열을 반환한다', async () => {
+      const result = await repository.getDailyExchangeVolume(TOKEN_ADDRESS, 7);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  // ─── getTopSenders() ──────────────────────────────────────
+
+  describe('getTopSenders()', () => {
+    const WHALE_2 = '0xAAAA000000000000000000000000000000000002';
+
+    it('지정 기간 동안 가장 많이 보낸 지갑 순으로 반환한다', async () => {
+      // given
+      const since = new Date('2024-01-01T00:00:00Z');
+      await repository.save(makeTransfer({ txHash: makeTxHash('da1'), from: WHALE_ADDRESS, value: 1_000_000n, blockTimestamp: new Date('2024-01-02'), toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('da2'), from: WHALE_2,       value: 5_000_000n, blockTimestamp: new Date('2024-01-02'), to: EXCHANGE_ADDRESS, toType: 'exchange' }));
+
+      // when
+      const result = await repository.getTopSenders(TOKEN_ADDRESS, since, 5);
+
+      // then — WHALE_2가 더 많이 보냈으므로 먼저 나와야 함
+      expect(result).toHaveLength(2);
+      expect(result[0].address.toLowerCase()).toBe(WHALE_2.toLowerCase());
+      expect(result[0].total).toBe(5_000_000n);
+    });
+
+    it('limit 개수만큼만 반환한다', async () => {
+      // given
+      const since = new Date('2024-01-01T00:00:00Z');
+      for (let i = 0; i < 4; i++) {
+        const from = `0xAAAA00000000000000000000000000000000000${i}`;
+        await repository.save(makeTransfer({
+          txHash: makeTxHash(`db${i}`), from,
+          blockTimestamp: new Date('2024-01-02'), toType: 'exchange',
+        }));
+      }
+
+      // when
+      const result = await repository.getTopSenders(TOKEN_ADDRESS, since, 2);
+
+      // then
+      expect(result).toHaveLength(2);
+    });
+
+    it('since 이전 데이터는 포함하지 않는다', async () => {
+      // given
+      const since = new Date('2024-06-01T00:00:00Z');
+      await repository.save(makeTransfer({ txHash: makeTxHash('dc1'), blockTimestamp: new Date('2024-01-01'), toType: 'exchange' }));
+
+      // when
+      const result = await repository.getTopSenders(TOKEN_ADDRESS, since, 5);
+
+      // then
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  // ─── sumAllToExchangeSince() ──────────────────────────────
+
+  describe('sumAllToExchangeSince()', () => {
+    it('기준 시각 이후 모든 지갑의 거래소 전송량을 합산한다', async () => {
+      // given
+      const WHALE_2 = '0xAAAA000000000000000000000000000000000002';
+      const since   = new Date('2024-01-02T00:00:00Z');
+
+      await repository.save(makeTransfer({ txHash: makeTxHash('ea1'), from: WHALE_ADDRESS, value: 1_000_000n, blockTimestamp: new Date('2024-01-03'), toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('ea2'), from: WHALE_2,       value: 2_000_000n, blockTimestamp: new Date('2024-01-03'), to: EXCHANGE_ADDRESS, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('ea3'), from: WHALE_ADDRESS, value: 9_000_000n, blockTimestamp: new Date('2024-01-01'), toType: 'exchange' }));
+
+      // when
+      const total = await repository.sumAllToExchangeSince(TOKEN_ADDRESS, since);
+
+      // then — ea1 + ea2만 합산 (ea3는 since 이전)
+      expect(total).toBe(3_000_000n);
+    });
+
+    it('데이터가 없으면 0n을 반환한다', async () => {
+      const total = await repository.sumAllToExchangeSince(TOKEN_ADDRESS, new Date());
+      expect(total).toBe(0n);
+    });
+  });
+
+  // ─── findRecentByAddress() ────────────────────────────────
+
+  describe('findRecentByAddress()', () => {
+    it('특정 지갑의 exchange 전송을 최신순으로 반환한다', async () => {
+      // given
+      const t1 = new Date('2024-01-01T00:00:00Z');
+      const t2 = new Date('2024-01-02T00:00:00Z');
+      await repository.save(makeTransfer({ txHash: makeTxHash('fa1'), blockTimestamp: t1, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('fa2'), blockTimestamp: t2, toType: 'exchange' }));
+
+      // when
+      const result = await repository.findRecentByAddress(WHALE_ADDRESS, TOKEN_ADDRESS, 10);
+
+      // then — 최신(t2)이 먼저
+      expect(result).toHaveLength(2);
+      expect(result[0].blockTimestamp.getTime()).toBeGreaterThan(result[1].blockTimestamp.getTime());
+    });
+
+    it('다른 지갑의 전송은 반환하지 않는다', async () => {
+      // given
+      const OTHER_WHALE = '0xAAAA000000000000000000000000000000000002';
+      await repository.save(makeTransfer({ txHash: makeTxHash('fb1'), from: WHALE_ADDRESS, toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('fb2'), from: OTHER_WHALE,   toType: 'exchange' }));
+
+      // when
+      const result = await repository.findRecentByAddress(WHALE_ADDRESS, TOKEN_ADDRESS, 10);
+
+      // then
+      expect(result).toHaveLength(1);
+      expect(result[0].from).toBe(WHALE_ADDRESS);
+    });
+
+    it('unknown 전송은 반환하지 않는다', async () => {
+      // given
+      await repository.save(makeTransfer({ txHash: makeTxHash('fc1'), toType: 'exchange' }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('fc2'), to: NORMAL_ADDRESS, toType: 'unknown' }));
+
+      // when
+      const result = await repository.findRecentByAddress(WHALE_ADDRESS, TOKEN_ADDRESS, 10);
+
+      // then
+      expect(result).toHaveLength(1);
+    });
+
+    it('limit 개수만큼만 반환한다', async () => {
+      // given
+      for (let i = 0; i < 5; i++) {
+        await repository.save(makeTransfer({ txHash: makeTxHash(`fd${i}`), logIndex: i, toType: 'exchange' }));
+      }
+
+      // when
+      const result = await repository.findRecentByAddress(WHALE_ADDRESS, TOKEN_ADDRESS, 3);
+
+      // then
+      expect(result).toHaveLength(3);
+    });
+  });
+
+  // ─── getLastTransferTimestamp() ───────────────────────────
+
+  describe('getLastTransferTimestamp()', () => {
+    it('저장된 전송 중 가장 최신 block_timestamp를 반환한다', async () => {
+      // given
+      const t1 = new Date('2024-01-01T00:00:00Z');
+      const t2 = new Date('2024-01-03T00:00:00Z');
+      await repository.save(makeTransfer({ txHash: makeTxHash('aa01'), blockTimestamp: t1 }));
+      await repository.save(makeTransfer({ txHash: makeTxHash('aa02'), blockTimestamp: t2 }));
+
+      // when
+      const result = await repository.getLastTransferTimestamp(WHALE_ADDRESS, TOKEN_ADDRESS);
+
+      // then
+      expect(result).not.toBeNull();
+      expect(result!.getTime()).toBe(t2.getTime());
+    });
+
+    it('해당 주소의 전송이 없으면 null을 반환한다', async () => {
+      // when
+      const result = await repository.getLastTransferTimestamp(WHALE_ADDRESS, TOKEN_ADDRESS);
+
+      // then
+      expect(result).toBeNull();
+    });
+
+    it('다른 토큰의 전송은 포함하지 않는다', async () => {
+      // given
+      const OTHER_TOKEN = '0xDDDD000000000000000000000000000000000004';
+      await repository.save(makeTransfer({
+        txHash: makeTxHash('ab01'),
+        tokenAddress: OTHER_TOKEN,
+        blockTimestamp: new Date('2024-06-01T00:00:00Z'),
+      }));
+
+      // when
+      const result = await repository.getLastTransferTimestamp(WHALE_ADDRESS, TOKEN_ADDRESS);
+
+      // then
+      expect(result).toBeNull();
+    });
+  });
 });

@@ -44,7 +44,6 @@ describe('PostgresSyncStateRepository', () => {
       // then
       expect(state.tokenAddress).toBe(TOKEN_ADDRESS);
       expect(state.lastProcessedBlock).toBe(0n);
-      expect(state.batchSyncedBlock).toBeNull();
       expect(state.isSyncing).toBe(false);
     });
 
@@ -85,20 +84,6 @@ describe('PostgresSyncStateRepository', () => {
       // then
       const state = await repository.getOrCreate(TOKEN_ADDRESS);
       expect(state.isSyncing).toBe(false);
-    });
-  });
-
-  describe('updateBatchSyncedBlock()', () => {
-    it('batch_synced_block을 업데이트한다', async () => {
-      // given
-      await repository.getOrCreate(TOKEN_ADDRESS);
-
-      // when
-      await repository.updateBatchSyncedBlock(TOKEN_ADDRESS, 19_000_000n);
-
-      // then
-      const state = await repository.getOrCreate(TOKEN_ADDRESS);
-      expect(state.batchSyncedBlock).toBe(19_000_000n);
     });
   });
 
