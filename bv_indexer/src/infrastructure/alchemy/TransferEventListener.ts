@@ -58,8 +58,8 @@ export class TransferEventListener {
 
     if (result.isAlert) {
       const [totalEver, totalToday] = await Promise.all([
-        this.transferRepo.sumToExchange(transfer.from, this.tokenAddress),
-        this.transferRepo.sumToExchangeSince(transfer.from, this.tokenAddress, this.startOfToday()),
+        this.transferRepo.sumAllFrom(transfer.from, this.tokenAddress),
+        this.transferRepo.sumAllFromSince(transfer.from, this.tokenAddress, this.startOfToday()),
       ]);
 
       await this.notifier.sendWhaleAlert({
@@ -70,6 +70,7 @@ export class TransferEventListener {
         totalEver,
         blockNumber: transfer.blockNumber,
         txHash: transfer.txHash,
+        toType: result.toType,
       });
     }
   }

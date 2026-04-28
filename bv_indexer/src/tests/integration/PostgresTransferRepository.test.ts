@@ -198,7 +198,7 @@ describe('PostgresTransferRepository', () => {
       expect(alerts).toHaveLength(3);
     });
 
-    it('알림 대상이 아닌 전송은 포함하지 않는다', async () => {
+    it('exchange, unknown 모든 전송을 반환한다', async () => {
       // given
       await repository.save(makeTransfer({ txHash: makeTxHash('aa1'), toType: 'exchange' }));
       await repository.save(makeTransfer({ txHash: makeTxHash('aa2'), to: NORMAL_ADDRESS, toType: 'unknown' }));
@@ -207,8 +207,7 @@ describe('PostgresTransferRepository', () => {
       const alerts = await repository.findRecentAlerts(TOKEN_ADDRESS, 10);
 
       // then
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0].toType).toBe('exchange');
+      expect(alerts).toHaveLength(2);
     });
 
     it('다른 토큰의 알림은 포함하지 않는다', async () => {
@@ -245,7 +244,7 @@ describe('PostgresTransferRepository', () => {
       expect(result[0].total).toBe(3_000_000n);
     });
 
-    it('unknown 전송은 집계에 포함하지 않는다', async () => {
+    it('unknown 전송도 집계에 포함한다', async () => {
       // given
       const ts = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       await repository.save(makeTransfer({ txHash: makeTxHash('cb1'), value: 1_000_000n, blockTimestamp: ts, toType: 'exchange' }));
@@ -255,7 +254,7 @@ describe('PostgresTransferRepository', () => {
       const result = await repository.getDailyExchangeVolume(TOKEN_ADDRESS, 7);
 
       // then
-      expect(result[0].total).toBe(1_000_000n);
+      expect(result[0].total).toBe(10_000_000n);
     });
 
     it('데이터가 없으면 빈 배열을 반환한다', async () => {
@@ -372,7 +371,7 @@ describe('PostgresTransferRepository', () => {
       expect(result[0].from).toBe(WHALE_ADDRESS);
     });
 
-    it('unknown 전송은 반환하지 않는다', async () => {
+    it('unknown 전송도 반환한다', async () => {
       // given
       await repository.save(makeTransfer({ txHash: makeTxHash('fc1'), toType: 'exchange' }));
       await repository.save(makeTransfer({ txHash: makeTxHash('fc2'), to: NORMAL_ADDRESS, toType: 'unknown' }));
@@ -381,7 +380,7 @@ describe('PostgresTransferRepository', () => {
       const result = await repository.findRecentByAddress(WHALE_ADDRESS, TOKEN_ADDRESS, 10);
 
       // then
-      expect(result).toHaveLength(1);
+      expect(result).toHaveLength(2);
     });
 
     it('limit 개수만큼만 반환한다', async () => {

@@ -6,7 +6,7 @@ export class PostgresExchangeAddressRepository implements IExchangeAddressReposi
 
   async isExchange(address: string): Promise<boolean> {
     const result = await this.pool.query(
-      'SELECT 1 FROM exchange_addresses WHERE address = $1',
+      'SELECT 1 FROM exchange_addresses WHERE LOWER(address) = LOWER($1)',
       [address]
     );
 

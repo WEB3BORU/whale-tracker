@@ -75,7 +75,7 @@ describe('DetectWhaleTransferUseCase', () => {
     expect(result.toType).toBe('exchange');
   });
 
-  it('세력 지갑에서 일반 주소로 전송되면 저장 대상이지만 알림 대상은 아니다', async () => {
+  it('세력 지갑에서 일반 주소로 전송되면 알림 대상이다 (toType: unknown)', async () => {
     // given
     whaleWalletRepo.add(WhaleWallet.create(WHALE_ADDRESS, TOKEN_ADDRESS));
     const transfer = Transfer.create({
@@ -92,7 +92,7 @@ describe('DetectWhaleTransferUseCase', () => {
 
     // then
     expect(result.isWhale).toBe(true);
-    expect(result.isAlert).toBe(false);
+    expect(result.isAlert).toBe(true);
     expect(result.toType).toBe('unknown');
   });
 

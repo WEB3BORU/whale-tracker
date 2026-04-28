@@ -23,4 +23,8 @@ export interface ITransferRepository {
   sumAllToExchangeSince(tokenAddress: string, since: Date): Promise<bigint>;
   findRecentByAddress(address: string, tokenAddress: string, limit: number): Promise<Transfer[]>;
   getLastTransferTimestamp(address: string, tokenAddress: string): Promise<Date | null>;
+
+  // 알림용 — 거래소 여부 무관 전체 출금량
+  sumAllFrom(whaleAddress: string, tokenAddress: string): Promise<bigint>;
+  sumAllFromSince(whaleAddress: string, tokenAddress: string, since: Date): Promise<bigint>;
 }

@@ -30,17 +30,18 @@ const pool = new Pool({
   password: requireEnv('DB_PASSWORD'),
 });
 
-const tokenAddress = requireEnv('TOKEN_ADDRESS');
-const lookbackDays = Number(optionalEnv('BATCH_LOOKBACK_DAYS') ?? '90');
+const tokenAddress  = requireEnv('TOKEN_ADDRESS');
+const tokenSymbol   = requireEnv('TOKEN_SYMBOL');
+const lookbackDays  = Number(optionalEnv('BATCH_LOOKBACK_DAYS') ?? '90');
 
 const whaleWalletRepo    = new PostgresWhaleWalletRepository(pool);
 const exchangeAddressRepo = new PostgresExchangeAddressRepository(pool);
 const transferRepo       = new PostgresTransferRepository(pool);
 const syncStateRepo      = new PostgresSyncStateRepository(pool);
-const notifier           = new TelegramNotifier(requireEnv('TG_BOT_KEY'), requireEnv('TG_CHAT_ID'));
+const notifier           = new TelegramNotifier(requireEnv('TG_BOT_KEY'), requireEnv('TG_CHAT_ID'), tokenSymbol);
 const useCase            = new DetectWhaleTransferUseCase(whaleWalletRepo, exchangeAddressRepo);
 const listener           = new TransferEventListener(useCase, transferRepo, notifier, tokenAddress);
-const commandHandler     = new TelegramCommandHandler(requireEnv('TG_BOT_KEY'), transferRepo, tokenAddress);
+const commandHandler     = new TelegramCommandHandler(requireEnv('TG_BOT_KEY'), transferRepo, tokenAddress, tokenSymbol);
 
 const batchSync = new HistoricalBatchSync(
   requireEnv('MORALIS_API_KEY'),
@@ -54,6 +55,7 @@ const batchSync = new HistoricalBatchSync(
 
 async function main() {
   await batchSync.run();
+  await new Promise(r => setTimeout(r, 3_000));
   commandHandler.start().catch(err => console.error('[TG 폴링 치명적 오류]', err));
   listener.start();
 }

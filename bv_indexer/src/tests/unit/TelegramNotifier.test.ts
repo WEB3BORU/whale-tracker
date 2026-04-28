@@ -12,6 +12,7 @@ const BASE_PARAMS = {
   totalEver:  10_000n * 10n ** 18n,
   blockNumber: 19000000n,
   txHash:      '0xabcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
+  toType:      'unknown' as const,
 };
 
 // ── formatTokenAmount ────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ describe('TelegramNotifier', () => {
   let notifier: TelegramNotifier;
 
   beforeEach(() => {
-    notifier = new TelegramNotifier(BOT_TOKEN, CHAT_ID);
+    notifier = new TelegramNotifier(BOT_TOKEN, CHAT_ID, 'RAVE');
   });
 
   afterEach(() => {

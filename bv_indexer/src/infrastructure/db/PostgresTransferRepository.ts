@@ -60,7 +60,6 @@ export class PostgresTransferRepository implements ITransferRepository {
               block_number, block_timestamp, to_type
        FROM transfers
        WHERE token_address = $1
-         AND to_type = 'exchange'
          AND is_orphan = FALSE
        ORDER BY block_timestamp DESC
        LIMIT $2`,
@@ -77,7 +76,6 @@ export class PostgresTransferRepository implements ITransferRepository {
          SUM(value) AS total
        FROM transfers
        WHERE token_address = $1
-         AND to_type = 'exchange'
          AND is_orphan = FALSE
          AND block_timestamp >= $2
        GROUP BY 1
@@ -94,7 +92,6 @@ export class PostgresTransferRepository implements ITransferRepository {
          SUM(value) AS total
        FROM transfers
        WHERE token_address = $1
-         AND to_type = 'exchange'
          AND is_orphan = FALSE
          AND block_timestamp >= $2
        GROUP BY from_address
@@ -110,7 +107,6 @@ export class PostgresTransferRepository implements ITransferRepository {
       `SELECT COALESCE(SUM(value), 0) AS total
        FROM transfers
        WHERE token_address = $1
-         AND to_type = 'exchange'
          AND is_orphan = FALSE
          AND block_timestamp >= $2`,
       [tokenAddress, since]
@@ -125,13 +121,37 @@ export class PostgresTransferRepository implements ITransferRepository {
        FROM transfers
        WHERE from_address = $1
          AND token_address = $2
-         AND to_type = 'exchange'
          AND is_orphan = FALSE
        ORDER BY block_timestamp DESC
        LIMIT $3`,
       [address, tokenAddress, limit]
     );
     return rows.map(row => this.rowToTransfer(row));
+  }
+
+  async sumAllFrom(whaleAddress: string, tokenAddress: string): Promise<bigint> {
+    const { rows } = await this.pool.query(
+      `SELECT COALESCE(SUM(value), 0) AS total
+       FROM transfers
+       WHERE from_address = $1
+         AND token_address = $2
+         AND is_orphan = FALSE`,
+      [whaleAddress, tokenAddress]
+    );
+    return BigInt(rows[0].total);
+  }
+
+  async sumAllFromSince(whaleAddress: string, tokenAddress: string, since: Date): Promise<bigint> {
+    const { rows } = await this.pool.query(
+      `SELECT COALESCE(SUM(value), 0) AS total
+       FROM transfers
+       WHERE from_address = $1
+         AND token_address = $2
+         AND block_timestamp >= $3
+         AND is_orphan = FALSE`,
+      [whaleAddress, tokenAddress, since]
+    );
+    return BigInt(rows[0].total);
   }
 
   async getLastTransferTimestamp(address: string, tokenAddress: string): Promise<Date | null> {
