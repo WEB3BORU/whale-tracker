@@ -98,7 +98,7 @@ export class TelegramCommandHandler {
     }
 
     const [total, recent] = await Promise.all([
-      this.transferRepo.sumToExchange(address, this.tokenAddress),
+      this.transferRepo.sumAllFrom(address, this.tokenAddress),
       this.transferRepo.findRecentByAddress(address, this.tokenAddress, 5),
     ]);
 
