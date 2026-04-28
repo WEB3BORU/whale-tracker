@@ -139,16 +139,16 @@ describe('TelegramCommandHandler', () => {
 
   // ── /whale ────────────────────────────────────────────────
 
-  it('/whale <주소> — sumToExchange와 findRecentByAddress를 호출한다', async () => {
+  it('/whale <주소> — sumAllFrom과 findRecentByAddress를 호출한다', async () => {
     // given
-    vi.spyOn(repo, 'sumToExchange').mockResolvedValue(2_000n * 10n ** 18n);
+    vi.spyOn(repo, 'sumAllFrom').mockResolvedValue(2_000n * 10n ** 18n);
     vi.spyOn(repo, 'findRecentByAddress').mockResolvedValue([makeTransfer()]);
 
     // when
     await handler.handleText(CHAT_ID, `/whale ${WHALE_ADDRESS}`);
 
     // then
-    expect(repo.sumToExchange).toHaveBeenCalledWith(WHALE_ADDRESS, TOKEN_ADDRESS);
+    expect(repo.sumAllFrom).toHaveBeenCalledWith(WHALE_ADDRESS, TOKEN_ADDRESS);
     expect(repo.findRecentByAddress).toHaveBeenCalledWith(WHALE_ADDRESS, TOKEN_ADDRESS, 5);
     const text = sentText();
     expect(text).toContain('2,000.0000 RAVE');
