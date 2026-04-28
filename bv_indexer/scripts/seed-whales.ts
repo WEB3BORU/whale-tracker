@@ -64,13 +64,13 @@ async function fetchExchangeAddresses(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.address.trim().toLowerCase()));
 }
 
-async function upsertWhaleWallet(address: string, label: string): Promise<void> {
+async function upsertWhaleWallet(address: string, tokenAddress: string, label: string): Promise<void> {
   await pool.query(
-    `INSERT INTO whale_wallets (address, label)
-     VALUES ($1, $2)
-     ON CONFLICT (address) DO UPDATE
+    `INSERT INTO whale_wallets (address, token_address, label)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (address, token_address) DO UPDATE
        SET label = EXCLUDED.label`,
-    [address, label]
+    [address, tokenAddress, label]
   );
 }
 
@@ -107,7 +107,7 @@ async function main() {
     const pct   = holder.percentage_relative_to_total_supply.toFixed(2);
     const label = `Top ${rank} Holder (${pct}%)`;
 
-    await upsertWhaleWallet(holder.owner_address, label);
+    await upsertWhaleWallet(holder.owner_address, tokenAddress, label);
     console.log(`  ✓ #${rank} ${holder.owner_address} — ${label}`);
     registered++;
   }

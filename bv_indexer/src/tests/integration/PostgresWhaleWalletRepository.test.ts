@@ -95,4 +95,54 @@ describe('PostgresWhaleWalletRepository', () => {
       expect(result!.isActive).toBe(false);
     });
   });
+
+  describe('findAllByToken()', () => {
+    it('해당 토큰의 활성 지갑 전체를 반환한다', async () => {
+      // given
+      const ADDRESS_2 = '0x1234567890abcdef1234567890ABCDEF12345678';
+      await pool.query(
+        'INSERT INTO whale_wallets (address, token_address) VALUES ($1, $2), ($3, $4)',
+        [ADDRESS, TOKEN_ADDRESS, ADDRESS_2, TOKEN_ADDRESS]
+      );
+
+      // when
+      const result = await repository.findAllByToken(TOKEN_ADDRESS);
+
+      // then
+      expect(result).toHaveLength(2);
+      expect(result.every(w => w.tokenAddress === TOKEN_ADDRESS)).toBe(true);
+    });
+
+    it('is_active가 false인 지갑은 반환하지 않는다', async () => {
+      // given
+      const ADDRESS_2 = '0x1234567890abcdef1234567890ABCDEF12345678';
+      await pool.query(
+        'INSERT INTO whale_wallets (address, token_address, is_active) VALUES ($1, $2, TRUE), ($3, $4, FALSE)',
+        [ADDRESS, TOKEN_ADDRESS, ADDRESS_2, TOKEN_ADDRESS]
+      );
+
+      // when
+      const result = await repository.findAllByToken(TOKEN_ADDRESS);
+
+      // then
+      expect(result).toHaveLength(1);
+      expect(result[0].address).toBe(ADDRESS);
+    });
+
+    it('다른 토큰의 지갑은 반환하지 않는다', async () => {
+      // given
+      const OTHER_TOKEN = '0xDDDD000000000000000000000000000000000004';
+      await pool.query(
+        'INSERT INTO whale_wallets (address, token_address) VALUES ($1, $2), ($1, $3)',
+        [ADDRESS, TOKEN_ADDRESS, OTHER_TOKEN]
+      );
+
+      // when
+      const result = await repository.findAllByToken(TOKEN_ADDRESS);
+
+      // then
+      expect(result).toHaveLength(1);
+      expect(result[0].tokenAddress).toBe(TOKEN_ADDRESS);
+    });
+  });
 });
